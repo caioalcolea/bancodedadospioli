@@ -1,0 +1,44 @@
+version: "3.7"
+services:
+
+## --------------------------- BANCO DE DADOS PIOLI --------------------------- ##
+
+  bancodados:
+    image: bancodedadospioli:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    networks:
+      - talkhub ## Nome da rede interna
+
+    environment:
+      ## Conexao com Postgres existente na rede talkhub
+      - DATABASE_URL=postgresql://postgres:894291802448b50603a3ca64f5f43f01@postgres:5432/bancodedadospioli
+      - NODE_ENV=production
+      - PORT=3456
+
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.bancodados.rule=Host(`bancodados.talkhub.me`)
+        - traefik.http.routers.bancodados.entrypoints=websecure
+        - traefik.http.routers.bancodados.tls.certresolver=letsencryptresolver
+        - traefik.http.services.bancodados.loadbalancer.server.port=3456
+        - traefik.http.routers.bancodados.service=bancodados
+
+## --------------------------- BANCO DE DADOS PIOLI --------------------------- ##
+
+networks:
+  talkhub: ## Nome da rede interna
+    external: true
+    name: talkhub ## Nome da rede interna
