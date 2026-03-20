@@ -23,14 +23,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Copy data and scripts for seeding
-COPY --from=builder /app/data ./data
+# Create data dir and copy scripts for seeding
+RUN mkdir -p ./data
 COPY --from=builder /app/scripts ./scripts
-
-# Copy dependencies needed by scripts (seed/convert)
-COPY --from=builder /app/node_modules/xlsx ./node_modules/xlsx
-COPY --from=builder /app/node_modules/fast-xml-parser ./node_modules/fast-xml-parser
-COPY --from=builder /app/node_modules/strnum ./node_modules/strnum
 
 # Install curl for healthcheck
 RUN apk add --no-cache curl
