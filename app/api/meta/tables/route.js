@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
-import pool, { ensureInit } from '@/lib/db'
+import pool, { ensureInit, safeError } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 
-export async function GET() {
+export async function GET(request) {
+  const authErr = requireAuth(request)
+  if (authErr) return authErr
+
   try {
     await ensureInit()
     const result = await pool.query(`
@@ -21,6 +25,6 @@ export async function GET() {
 
     return NextResponse.json(tables)
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: safeError(err) }, { status: 500 })
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import pool from '@/lib/db'
+import pool, { isValidTable, safeError } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 import { XMLBuilder } from 'fast-xml-parser'
 
 function mapPgTypeToXml(pgType) {
@@ -13,9 +14,16 @@ function mapPgTypeToXml(pgType) {
 }
 
 export async function GET(request, { params }) {
+  const authErr = requireAuth(request)
+  if (authErr) return authErr
+
   const { table } = await params
 
   try {
+    if (!(await isValidTable(table))) {
+      return NextResponse.json({ error: 'Table not found' }, { status: 404 })
+    }
+
     const colsResult = await pool.query(
       `SELECT column_name, data_type FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = $1
@@ -23,10 +31,6 @@ export async function GET(request, { params }) {
        ORDER BY ordinal_position`,
       [table]
     )
-
-    if (colsResult.rows.length === 0) {
-      return NextResponse.json({ error: `Table "${table}" not found` }, { status: 404 })
-    }
 
     const dataResult = await pool.query(`SELECT * FROM "${table}" ORDER BY id`)
 
@@ -59,14 +63,15 @@ export async function GET(request, { params }) {
     })
 
     const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + builder.build(xmlObj)
+    const safeFilename = table.replace(/[^a-zA-Z0-9_-]/g, '_')
 
     return new Response(xml, {
       headers: {
-        'Content-Type': 'application/xml',
-        'Content-Disposition': `attachment; filename="${table}.xml"`
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${safeFilename}.xml"`
       }
     })
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: safeError(err) }, { status: 500 })
   }
 }

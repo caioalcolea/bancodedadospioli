@@ -13,7 +13,12 @@ services:
       - talkhub
 
     environment:
+      ## Conexao com PostgreSQL existente na rede talkhub
       - DATABASE_URL=postgresql://postgres:894291802448b50603a3ca64f5f43f01@postgres:5432/bancodedadospioli
+
+      ## Chave de API para proteger endpoints (chatbot deve enviar esta chave)
+      - API_KEY=pioli_sk_changeme_in_production
+
       - NODE_ENV=production
       - PORT=3456
 

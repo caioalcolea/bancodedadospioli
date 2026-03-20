@@ -1,11 +1,17 @@
 import { NextResponse } from 'next/server'
-import pool, { ensureInit } from '@/lib/db'
+import pool, { ensureInit, isValidTable, getTableColumns, filterValidColumns, safeError } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
+
+const MAX_LIMIT = 500
 
 export async function GET(request, { params }) {
+  const authErr = requireAuth(request)
+  if (authErr) return authErr
+
   const { table } = await params
   const { searchParams } = new URL(request.url)
-  const page = parseInt(searchParams.get('page') || '1')
-  const limit = parseInt(searchParams.get('limit') || '50')
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1)
+  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(searchParams.get('limit') || '50') || 50))
   const sort = searchParams.get('sort')
   const order = searchParams.get('order') || 'asc'
   const search = searchParams.get('search')
@@ -13,24 +19,21 @@ export async function GET(request, { params }) {
   try {
     await ensureInit()
 
-    // Verify table exists
-    const tableCheck = await pool.query(
-      'SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2',
-      ['public', table]
-    )
-    if (tableCheck.rows.length === 0) {
-      return NextResponse.json({ error: `Table "${table}" not found` }, { status: 404 })
+    if (!(await isValidTable(table))) {
+      return NextResponse.json({ error: 'Table not found' }, { status: 404 })
     }
+
+    const validColumns = await getTableColumns(table)
 
     let query = `SELECT * FROM "${table}"`
     const values = []
     const conditions = []
     let paramIdx = 1
 
-    // Collect filter params (exclude known params)
+    // Collect filter params (only valid columns)
     const reserved = ['page', 'limit', 'sort', 'order', 'search']
     for (const [key, value] of searchParams.entries()) {
-      if (!reserved.includes(key)) {
+      if (!reserved.includes(key) && validColumns.includes(key)) {
         conditions.push(`"${key}"::text ILIKE $${paramIdx}`)
         values.push(`%${value}%`)
         paramIdx++
@@ -39,13 +42,9 @@ export async function GET(request, { params }) {
 
     // Search across all text columns
     if (search) {
-      const cols = await pool.query(
-        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`,
-        [table]
-      )
-      const searchConds = cols.rows.map(col => {
+      const searchConds = validColumns.map(col => {
         values.push(`%${search}%`)
-        return `"${col.column_name}"::text ILIKE $${paramIdx++}`
+        return `"${col}"::text ILIKE $${paramIdx++}`
       })
       if (searchConds.length > 0) {
         conditions.push(`(${searchConds.join(' OR ')})`)
@@ -58,8 +57,8 @@ export async function GET(request, { params }) {
     const countResult = await pool.query(`SELECT COUNT(*) FROM "${table}"${whereClause}`, values)
     const total = parseInt(countResult.rows[0].count)
 
-    // Sort
-    if (sort) {
+    // Sort - validate column name
+    if (sort && validColumns.includes(sort)) {
       query += whereClause + ` ORDER BY "${sort}" ${order.toUpperCase() === 'DESC' ? 'DESC' : 'ASC'}`
     } else {
       query += whereClause + ' ORDER BY id ASC'
@@ -77,16 +76,31 @@ export async function GET(request, { params }) {
       pagination: { page, limit, total, pages: Math.ceil(total / limit) }
     })
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: safeError(err) }, { status: 500 })
   }
 }
 
 export async function POST(request, { params }) {
+  const authErr = requireAuth(request)
+  if (authErr) return authErr
+
   const { table } = await params
-  const data = await request.json()
 
   try {
+    await ensureInit()
+    if (!(await isValidTable(table))) {
+      return NextResponse.json({ error: 'Table not found' }, { status: 404 })
+    }
+
+    const validColumns = await getTableColumns(table)
+    const body = await request.json()
+    const data = filterValidColumns(body, validColumns)
+
     const keys = Object.keys(data)
+    if (keys.length === 0) {
+      return NextResponse.json({ error: 'No valid columns provided' }, { status: 400 })
+    }
+
     const values = Object.values(data)
     const placeholders = keys.map((_, i) => `$${i + 1}`)
 
@@ -96,6 +110,6 @@ export async function POST(request, { params }) {
     )
     return NextResponse.json(result.rows[0], { status: 201 })
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: safeError(err) }, { status: 500 })
   }
 }

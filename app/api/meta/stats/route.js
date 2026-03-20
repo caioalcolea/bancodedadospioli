@@ -1,17 +1,21 @@
 import { NextResponse } from 'next/server'
-import pool, { ensureInit } from '@/lib/db'
+import pool, { ensureInit, safeError } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 
-export async function GET() {
+export async function GET(request) {
+  const authErr = requireAuth(request)
+  if (authErr) return authErr
+
   try {
     await ensureInit()
-    const tablesResult = await pool.query('SELECT COUNT(*) FROM _meta_tables')
-    const webhooksResult = await pool.query('SELECT COUNT(*) FROM _webhook_logs')
-    const recentWebhooks = await pool.query(
-      "SELECT COUNT(*) FROM _webhook_logs WHERE created_at > NOW() - INTERVAL '24 hours'"
-    )
+    const [tablesResult, webhooksResult, recentWebhooks, metaTables] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM _meta_tables'),
+      pool.query('SELECT COUNT(*) FROM _webhook_logs'),
+      pool.query("SELECT COUNT(*) FROM _webhook_logs WHERE created_at > NOW() - INTERVAL '24 hours'"),
+      pool.query('SELECT table_name FROM _meta_tables')
+    ])
 
     let totalRecords = 0
-    const metaTables = await pool.query('SELECT table_name FROM _meta_tables')
     for (const t of metaTables.rows) {
       try {
         const c = await pool.query(`SELECT COUNT(*) FROM "${t.table_name}"`)
@@ -26,6 +30,6 @@ export async function GET() {
       webhooks_24h: parseInt(recentWebhooks.rows[0].count)
     })
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: safeError(err) }, { status: 500 })
   }
 }

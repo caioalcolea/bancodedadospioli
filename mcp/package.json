@@ -1,0 +1,13 @@
+{
+  "name": "pioli-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for Pioli DB - allows chatbots to query and update health plan data",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

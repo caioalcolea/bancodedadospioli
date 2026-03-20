@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
-import pool, { ensureInit } from '@/lib/db'
+import pool, { ensureInit, safeError } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 
 export async function GET(request) {
+  const authErr = requireAuth(request)
+  if (authErr) return authErr
+
   try {
     await ensureInit()
     const metaTables = await pool.query('SELECT table_name, display_name FROM _meta_tables')
@@ -11,7 +15,7 @@ export async function GET(request) {
       {
         category: 'Sistema',
         items: [
-          { method: 'GET', path: '/api/health', description: 'Health check do sistema' },
+          { method: 'GET', path: '/api/health', description: 'Health check do sistema (sem autenticacao)' },
           { method: 'GET', path: '/api/meta/stats', description: 'Estatisticas gerais' },
           { method: 'GET', path: '/api/meta/tables', description: 'Listar todas as tabelas gerenciadas' },
           { method: 'GET', path: '/api/meta/endpoints', description: 'Listar todos os endpoints disponiveis' },
@@ -20,8 +24,8 @@ export async function GET(request) {
       {
         category: 'XML Import/Export',
         items: [
-          { method: 'POST', path: '/api/xml/import', description: 'Importar dados via XML (cria tabela se necessario)', body: 'multipart/form-data com campo "file" ou JSON com campo "xml"' },
-          { method: 'POST', path: '/api/xml/import-update', description: 'Importar XML com atualizacao (upsert). Use query param match_field', body: 'multipart/form-data com campo "file"' },
+          { method: 'POST', path: '/api/xml/import', description: 'Importar dados via XML (cria tabela se necessario)', body: 'multipart/form-data com campo "file"' },
+          { method: 'POST', path: '/api/xml/import-update', description: 'Importar XML com atualizacao (upsert). Query param: match_field', body: 'multipart/form-data com campo "file"' },
           { method: 'GET', path: '/api/xml/export/:table', description: 'Exportar tabela como XML' },
         ]
       },
@@ -43,14 +47,14 @@ export async function GET(request) {
           { method: 'POST', path: `/api/data/${t.table_name}`, description: 'Criar novo registro', body: 'JSON com campos da tabela' },
           { method: 'PUT', path: `/api/data/${t.table_name}/:id`, description: 'Atualizar registro', body: 'JSON com campos a atualizar' },
           { method: 'DELETE', path: `/api/data/${t.table_name}/:id`, description: 'Deletar registro' },
-          { method: 'POST', path: `/api/webhook/${t.table_name}`, description: 'Webhook: inserir ou atualizar registro. Envie match_field no body para upsert', body: '{ "match_field": "campo", "campo": "valor", ... }' },
-          { method: 'POST', path: `/api/webhook/${t.table_name}/batch`, description: 'Webhook batch: inserir/atualizar multiplos registros', body: '{ "match_field": "campo", "records": [...] }' },
+          { method: 'POST', path: `/api/webhook/${t.table_name}`, description: 'Webhook: inserir ou atualizar. Envie match_field para upsert', body: '{ "match_field": "campo", "campo": "valor", ... }' },
+          { method: 'POST', path: `/api/webhook/${t.table_name}/batch`, description: 'Webhook batch (max 1000 registros)', body: '{ "match_field": "campo", "records": [...] }' },
         ]
       })
     }
 
     return NextResponse.json({ base_url: baseUrl, endpoints })
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: safeError(err) }, { status: 500 })
   }
 }
